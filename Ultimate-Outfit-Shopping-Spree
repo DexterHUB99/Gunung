@@ -1,0 +1,226 @@
+local player = game.Players.LocalPlayer
+local uis = game:GetService("UserInputService")
+local coreGui = game:GetService("CoreGui")
+
+if coreGui:FindFirstChild("DexterHUB_AutoFarm") then
+    coreGui.DexterHUB_AutoFarm:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "DexterHUB_AutoFarm"
+ScreenGui.Parent = coreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 300, 0, 160)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -80)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Text = " DexterHUB | Diamond Auto-Farm"
+Title.Font = Enum.Font.Code
+Title.TextSize = 13
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = Title
+
+local TitleBlock = Instance.new("Frame")
+TitleBlock.Size = UDim2.new(1, 0, 0, 8)
+TitleBlock.Position = UDim2.new(0, 0, 1, -8)
+TitleBlock.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+TitleBlock.BorderSizePixel = 0
+TitleBlock.Parent = Title
+
+-- Drag
+local dragging, dragInput, dragStart, startPos
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+Title.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+uis.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- Toggle Button
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 260, 0, 35)
+ToggleBtn.Position = UDim2.new(0, 20, 0, 45)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.Text = "Auto Farm: OFF"
+ToggleBtn.Font = Enum.Font.Code
+ToggleBtn.TextSize = 16
+ToggleBtn.Parent = MainFrame
+
+local BtnCorner = Instance.new("UICorner")
+BtnCorner.CornerRadius = UDim.new(0, 6)
+BtnCorner.Parent = ToggleBtn
+
+-- Status Label
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(0, 260, 0, 16)
+StatusLabel.Position = UDim2.new(0, 20, 0, 83)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+StatusLabel.Text = "Diamonds found: 0"
+StatusLabel.Font = Enum.Font.Code
+StatusLabel.TextSize = 12
+StatusLabel.Parent = MainFrame
+
+-- Slider Delay
+local delayMs = 100
+local minDelay, maxDelay = 0, 1000
+
+local SliderLabel = Instance.new("TextLabel")
+SliderLabel.Size = UDim2.new(0, 260, 0, 20)
+SliderLabel.Position = UDim2.new(0, 20, 0, 102)
+SliderLabel.BackgroundTransparency = 1
+SliderLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+SliderLabel.Text = "Teleport Delay: " .. delayMs .. " ms"
+SliderLabel.Font = Enum.Font.Code
+SliderLabel.TextSize = 13
+SliderLabel.Parent = MainFrame
+
+local SliderBG = Instance.new("Frame")
+SliderBG.Size = UDim2.new(0, 260, 0, 8)
+SliderBG.Position = UDim2.new(0, 20, 0, 128)
+SliderBG.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+SliderBG.Parent = MainFrame
+
+local SliderBGCorner = Instance.new("UICorner")
+SliderBGCorner.CornerRadius = UDim.new(1, 0)
+SliderBGCorner.Parent = SliderBG
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new(delayMs / maxDelay, 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+SliderFill.Parent = SliderBG
+
+local SliderFillCorner = Instance.new("UICorner")
+SliderFillCorner.CornerRadius = UDim.new(1, 0)
+SliderFillCorner.Parent = SliderFill
+
+local SliderBtn = Instance.new("TextButton")
+SliderBtn.Size = UDim2.new(1, 0, 1, 20)
+SliderBtn.Position = UDim2.new(0, 0, 0, -10)
+SliderBtn.BackgroundTransparency = 1
+SliderBtn.Text = ""
+SliderBtn.Parent = SliderBG
+
+local sliding = false
+SliderBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true end
+end)
+uis.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
+end)
+uis.InputChanged:Connect(function(input)
+    if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local mouseX = input.Position.X
+        local bgPos = SliderBG.AbsolutePosition.X
+        local bgSize = SliderBG.AbsoluteSize.X
+        local percent = math.clamp((mouseX - bgPos) / bgSize, 0, 1)
+        SliderFill.Size = UDim2.new(percent, 0, 1, 0)
+        delayMs = math.floor(minDelay + (maxDelay - minDelay) * percent)
+        SliderLabel.Text = "Teleport Delay: " .. delayMs .. " ms"
+    end
+end)
+
+-- ============================================
+-- FUNGSI PENCARI DIAMOND (fix untuk Model)
+-- ============================================
+local DIAMOND_NAMES = {"CoinGiver", "Diamond", "diamond", "Coin", "coin"}
+
+local function getPrimaryOrAnyPart(obj)
+    -- Kalau Model, ambil PrimaryPart atau part pertama
+    if obj:IsA("Model") then
+        if obj.PrimaryPart then
+            return obj.PrimaryPart
+        end
+        for _, v in pairs(obj:GetDescendants()) do
+            if v:IsA("BasePart") then return v end
+        end
+    elseif obj:IsA("BasePart") then
+        return obj
+    end
+    return nil
+end
+
+local function getTargetItems()
+    local items = {}
+    for _, obj in pairs(workspace:GetChildren()) do
+        for _, name in pairs(DIAMOND_NAMES) do
+            if obj.Name == name then
+                local part = getPrimaryOrAnyPart(obj)
+                if part then
+                    table.insert(items, part)
+                end
+                break
+            end
+        end
+    end
+    return items
+end
+
+-- ============================================
+-- AUTO FARM LOGIC
+-- ============================================
+local autoFarm = false
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    autoFarm = not autoFarm
+    if autoFarm then
+        ToggleBtn.Text = "Auto Farm: ON"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+
+        task.spawn(function()
+            while autoFarm do
+                local targets = getTargetItems()
+                StatusLabel.Text = "Diamonds found: " .. #targets
+
+                for _, target in ipairs(targets) do
+                    if not autoFarm then break end
+
+                    local character = player.Character
+                    if character and character:FindFirstChild("HumanoidRootPart") then
+                        -- Teleport tepat di atas diamond agar trigger touch
+                        character.HumanoidRootPart.CFrame = target.CFrame * CFrame.new(0, 2, 0)
+                    end
+
+                    task.wait(math.max(delayMs / 1000, 0.01))
+                end
+
+                task.wait(0.1)
+            end
+            StatusLabel.Text = "Diamonds found: 0"
+        end)
+    else
+        ToggleBtn.Text = "Auto Farm: OFF"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    end
+end)
