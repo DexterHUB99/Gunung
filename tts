@@ -1,0 +1,532 @@
+-- WordSolver v10
+-- Fix 1: Akses Dictionary.Words via getgc() — sudah di memory
+-- Fix 2: SubmitWord format = {{row=N,col=N},...} bukan array of strings
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+
+local GameRemotes = ReplicatedStorage:WaitForChild("GameRemotes")
+local StartRound  = GameRemotes:WaitForChild("StartRound")
+local WordResult  = GameRemotes:WaitForChild("WordResult")
+
+-- ════════════════════════════════════
+--  LOAD DICTIONARY
+--  Dictionary.Words = {["WORD"]=true,...} sudah ada di memory
+--  Akses via getgc() scan
+-- ════════════════════════════════════
+local wordSet = nil
+local dictReady = false
+
+local function loadDictionary()
+    -- Cara 1: getgc() scan cari table dengan key "Words" berisi hashtable kata
+    if getgc then
+        for _, v in ipairs(getgc(true)) do
+            if type(v) == "table" then
+                -- Dictionary module punya .Words (table) dan .Contains (function) dan .Load (function)
+                local ok = pcall(function()
+                    if type(v.Words) == "table"
+                    and type(v.Contains) == "function"
+                    and type(v.Load) == "function" then
+                        -- Verifikasi: cek ada kata-kata di Words
+                        local count = 0
+                        for _ in pairs(v.Words) do
+                            count = count + 1
+                            if count > 5 then break end
+                        end
+                        if count > 0 then
+                            wordSet = v.Words
+                            dictReady = true
+                        end
+                    end
+                end)
+                if dictReady then break end
+            end
+        end
+        if dictReady then
+            local count = 0
+            for _ in pairs(wordSet) do count = count + 1 end
+            print("[Dict] Loaded via getgc:", count, "kata")
+            return true, "getgc ("..count.." kata)"
+        end
+    end
+
+    -- Cara 2: require DictionaryWords langsung (array of strings)
+    local ok2, res2 = pcall(function()
+        local SharedMod = ReplicatedStorage:WaitForChild("SharedModules", 3)
+        local DW = require(SharedMod:WaitForChild("DictionaryWords", 3))
+        if type(DW) == "table" and #DW > 0 then
+            wordSet = {}
+            for _, word in ipairs(DW) do
+                local w = tostring(word):upper():gsub("%s+","")
+                if #w >= 3 and w:match("^[A-Z]+$") then
+                    wordSet[w] = true
+                end
+            end
+            dictReady = true
+        end
+    end)
+    if dictReady then
+        local count = 0
+        for _ in pairs(wordSet) do count = count + 1 end
+        print("[Dict] Loaded via DictionaryWords:", count, "kata")
+        return true, "DictionaryWords ("..count.." kata)"
+    end
+
+    -- Cara 3: require Dictionary module
+    local ok3, res3 = pcall(function()
+        local SharedMod = ReplicatedStorage:WaitForChild("SharedModules", 3)
+        local Dict = require(SharedMod:WaitForChild("Dictionary", 3))
+        if Dict and type(Dict.Words) == "table" then
+            wordSet = Dict.Words
+            dictReady = true
+        end
+    end)
+    if dictReady then
+        local count = 0
+        for _ in pairs(wordSet) do count = count + 1 end
+        return true, "require Dictionary ("..count.." kata)"
+    end
+
+    return false, "Semua cara gagal"
+end
+
+local function isWord(w)
+    if not dictReady or not wordSet then return false end
+    return wordSet[w:upper()] == true
+end
+
+-- ════════════════════════════════════
+--  GUI HELPERS
+-- ════════════════════════════════════
+local function tw(obj, goal, t)
+    TweenService:Create(obj, TweenInfo.new(t or 0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), goal):Play()
+end
+local function corner(p, r) local c=Instance.new("UICorner",p); c.CornerRadius=UDim.new(0,r or 8) end
+local function pad(p,t,b,l,r)
+    local u=Instance.new("UIPadding",p)
+    u.PaddingTop=UDim.new(0,t or 0); u.PaddingBottom=UDim.new(0,b or 0)
+    u.PaddingLeft=UDim.new(0,l or 0); u.PaddingRight=UDim.new(0,r or 0)
+end
+
+local C = {
+    bg    = Color3.fromRGB(12,10,24),
+    panel = Color3.fromRGB(20,16,40),
+    card  = Color3.fromRGB(28,22,52),
+    accent= Color3.fromRGB(110,75,245),
+    green = Color3.fromRGB(55,215,125),
+    yellow= Color3.fromRGB(255,195,55),
+    red   = Color3.fromRGB(255,75,75),
+    sub   = Color3.fromRGB(135,120,185),
+    white = Color3.fromRGB(245,240,255),
+}
+
+-- ════════════════════════════════════
+--  SCREEN GUI
+-- ════════════════════════════════════
+local SG = Instance.new("ScreenGui")
+SG.Name="WordSolver"; SG.ResetOnSpawn=false
+SG.ZIndexBehavior=Enum.ZIndexBehavior.Sibling; SG.DisplayOrder=999
+pcall(function() SG.Parent=game:GetService("CoreGui") end)
+if not SG.Parent then SG.Parent=LocalPlayer:WaitForChild("PlayerGui") end
+
+local Win=Instance.new("Frame",SG)
+Win.Size=UDim2.new(0,310,0,510)
+Win.Position=UDim2.new(0,16,0.5,-255)
+Win.BackgroundColor3=C.bg; Win.BorderSizePixel=0
+Win.Active=true; Win.Draggable=true; corner(Win,16)
+do local s=Instance.new("UIStroke",Win); s.Color=C.accent; s.Thickness=1.5; s.Transparency=0.55 end
+
+-- Header
+local Hdr=Instance.new("Frame",Win)
+Hdr.Size=UDim2.new(1,0,0,54); Hdr.BackgroundColor3=C.panel; Hdr.BorderSizePixel=0; corner(Hdr,16)
+do local f=Instance.new("Frame",Hdr); f.Size=UDim2.new(1,0,0.5,0); f.Position=UDim2.new(0,0,0.5,0)
+   f.BackgroundColor3=C.panel; f.BorderSizePixel=0 end
+
+local TitleL=Instance.new("TextLabel",Hdr)
+TitleL.Size=UDim2.new(1,-100,0,22); TitleL.Position=UDim2.new(0,16,0,8)
+TitleL.BackgroundTransparency=1; TitleL.Text="WORD SOLVER"
+TitleL.TextColor3=C.white; TitleL.Font=Enum.Font.GothamBold; TitleL.TextSize=15
+TitleL.TextXAlignment=Enum.TextXAlignment.Left
+
+local SubL=Instance.new("TextLabel",Hdr)
+SubL.Size=UDim2.new(1,-100,0,13); SubL.Position=UDim2.new(0,16,0,33)
+SubL.BackgroundTransparency=1; SubL.Text="loading dictionary..."
+SubL.TextColor3=C.sub; SubL.Font=Enum.Font.Gotham; SubL.TextSize=10
+SubL.TextXAlignment=Enum.TextXAlignment.Left
+
+local Pill=Instance.new("Frame",Hdr)
+Pill.Size=UDim2.new(0,66,0,22); Pill.Position=UDim2.new(1,-78,0.5,-11)
+Pill.BackgroundColor3=C.yellow; Pill.BackgroundTransparency=0.8; Pill.BorderSizePixel=0; corner(Pill,11)
+do local s=Instance.new("UIStroke",Pill); s.Color=C.yellow; s.Thickness=1; s.Transparency=0.5 end
+local PillTxt=Instance.new("TextLabel",Pill)
+PillTxt.Size=UDim2.new(1,0,1,0); PillTxt.BackgroundTransparency=1
+PillTxt.Text="LOAD"; PillTxt.TextColor3=C.yellow
+PillTxt.Font=Enum.Font.GothamBold; PillTxt.TextSize=10
+
+local function setStatus(txt,col)
+    PillTxt.Text=txt; PillTxt.TextColor3=col; Pill.BackgroundColor3=col
+    for _,c in ipairs(Pill:GetChildren()) do if c:IsA("UIStroke") then c.Color=col end end
+end
+
+local function makeHdrBtn(xOff,col,txt)
+    local B=Instance.new("TextButton",Hdr)
+    B.Size=UDim2.new(0,24,0,24); B.Position=UDim2.new(1,xOff,0.5,-12)
+    B.BackgroundColor3=col; B.BackgroundTransparency=0.75
+    B.Text=txt; B.TextColor3=col; B.Font=Enum.Font.GothamBold; B.TextSize=12; B.BorderSizePixel=0; corner(B,12)
+    do local s=Instance.new("UIStroke",B); s.Color=col; s.Thickness=1; s.Transparency=0.5 end
+    B.MouseEnter:Connect(function() tw(B,{BackgroundTransparency=0.4}) end)
+    B.MouseLeave:Connect(function() tw(B,{BackgroundTransparency=0.75}) end)
+    return B
+end
+local MinBtn  =makeHdrBtn(-54,Color3.fromRGB(255,185,40),"—")
+local CloseBtn=makeHdrBtn(-26,C.red,"✕")
+
+-- Divider
+local HLine=Instance.new("Frame",Win)
+HLine.Size=UDim2.new(1,-32,0,1); HLine.Position=UDim2.new(0,16,0,54)
+HLine.BackgroundColor3=C.accent; HLine.BackgroundTransparency=0.8; HLine.BorderSizePixel=0
+
+-- Stats bar
+local StatsBar=Instance.new("Frame",Win)
+StatsBar.Size=UDim2.new(1,-32,0,40); StatsBar.Position=UDim2.new(0,16,0,62)
+StatsBar.BackgroundColor3=C.card; StatsBar.BorderSizePixel=0; corner(StatsBar,10)
+
+local function makeStat(xPct,lbl)
+    local f=Instance.new("Frame",StatsBar); f.Size=UDim2.new(0.33,0,1,0); f.Position=UDim2.new(xPct,0,0,0); f.BackgroundTransparency=1
+    local val=Instance.new("TextLabel",f); val.Size=UDim2.new(1,0,0,22); val.Position=UDim2.new(0,0,0,4)
+    val.BackgroundTransparency=1; val.Text="—"; val.TextColor3=C.white; val.Font=Enum.Font.GothamBold; val.TextSize=15
+    local sub=Instance.new("TextLabel",f); sub.Size=UDim2.new(1,0,0,12); sub.Position=UDim2.new(0,0,0,26)
+    sub.BackgroundTransparency=1; sub.Text=lbl; sub.TextColor3=C.sub; sub.Font=Enum.Font.Gotham; sub.TextSize=9
+    return val
+end
+local StatKata    = makeStat(0,   "KATA")
+local StatGrid    = makeStat(0.33,"GRID")
+local StatPanjang = makeStat(0.66,"TERPANJANG")
+
+-- Grid preview 4x4
+local GridPreview=Instance.new("Frame",Win)
+GridPreview.Size=UDim2.new(1,-32,0,68); GridPreview.Position=UDim2.new(0,16,0,110)
+GridPreview.BackgroundColor3=C.card; GridPreview.BorderSizePixel=0; corner(GridPreview,10)
+local GridLayout=Instance.new("UIGridLayout",GridPreview)
+GridLayout.CellSize=UDim2.new(0,36,0,14); GridLayout.CellPadding=UDim2.new(0,3,0,3)
+GridLayout.HorizontalAlignment=Enum.HorizontalAlignment.Center
+GridLayout.VerticalAlignment=Enum.VerticalAlignment.Center
+GridLayout.SortOrder=Enum.SortOrder.LayoutOrder
+
+local gridCells={}
+for i=1,16 do
+    local cell=Instance.new("Frame",GridPreview)
+    cell.BackgroundColor3=C.panel; cell.BorderSizePixel=0; cell.LayoutOrder=i; corner(cell,4)
+    local lbl=Instance.new("TextLabel",cell)
+    lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1; lbl.Text="·"
+    lbl.TextColor3=C.sub; lbl.Font=Enum.Font.GothamBold; lbl.TextSize=11
+    gridCells[i]=lbl
+end
+
+local function updateGridPreview(grid,ROWS,COLS)
+    local i=1
+    for r=1,ROWS do
+        for c=1,COLS do
+            if gridCells[i] then
+                local t=grid[r] and grid[r][c]
+                gridCells[i].Text=t and t.char or "?"
+                gridCells[i].TextColor3=t and C.white or C.sub
+            end
+            i=i+1
+        end
+    end
+end
+
+-- Filter bar
+local FilterBar=Instance.new("Frame",Win)
+FilterBar.Size=UDim2.new(1,-32,0,28); FilterBar.Position=UDim2.new(0,16,0,186)
+FilterBar.BackgroundTransparency=1
+local FL=Instance.new("UIListLayout",FilterBar)
+FL.FillDirection=Enum.FillDirection.Horizontal; FL.Padding=UDim.new(0,5)
+FL.VerticalAlignment=Enum.VerticalAlignment.Center
+
+local activeFilter=0; local filterBtns={}
+local filterLabels={"Semua","3","4","5","6","7","8+"}
+local filterVals  ={0,      3,  4,  5,  6,  7,  8}
+local applyFilter
+
+for i,lbl in ipairs(filterLabels) do
+    local B=Instance.new("TextButton",FilterBar)
+    B.Size=UDim2.new(0,i==1 and 50 or 29,1,0)
+    B.BackgroundColor3=C.card; B.BackgroundTransparency=i==1 and 0.15 or 0.55
+    B.Text=lbl; B.TextColor3=i==1 and C.white or C.sub
+    B.Font=Enum.Font.GothamMedium; B.TextSize=10; B.BorderSizePixel=0; corner(B,6)
+    local fv=filterVals[i]
+    B.MouseButton1Click:Connect(function()
+        activeFilter=fv
+        for j,fb in ipairs(filterBtns) do
+            tw(fb,{BackgroundTransparency=j==i and 0.15 or 0.55})
+            fb.TextColor3=j==i and C.white or C.sub
+        end
+        if applyFilter then applyFilter() end
+    end)
+    filterBtns[i]=B
+end
+
+-- Word list
+local ListFrame=Instance.new("Frame",Win)
+ListFrame.Size=UDim2.new(1,-32,1,-290); ListFrame.Position=UDim2.new(0,16,0,222)
+ListFrame.BackgroundColor3=C.panel; ListFrame.BorderSizePixel=0; corner(ListFrame,12)
+
+local WordScroll=Instance.new("ScrollingFrame",ListFrame)
+WordScroll.Size=UDim2.new(1,-4,1,-4); WordScroll.Position=UDim2.new(0,2,0,2)
+WordScroll.BackgroundTransparency=1; WordScroll.BorderSizePixel=0
+WordScroll.ScrollBarThickness=3; WordScroll.ScrollBarImageColor3=C.accent
+WordScroll.ScrollBarImageTransparency=0.5; WordScroll.CanvasSize=UDim2.new(0,0,0,0)
+pad(WordScroll,6,6,8,6)
+local WordLayout=Instance.new("UIListLayout",WordScroll)
+WordLayout.Padding=UDim.new(0,4); WordLayout.SortOrder=Enum.SortOrder.LayoutOrder
+WordLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    WordScroll.CanvasSize=UDim2.new(0,0,0,WordLayout.AbsoluteContentSize.Y+12)
+end)
+
+local function lenColor(n)
+    if n<=3 then return Color3.fromRGB(130,130,210) end
+    if n==4 then return Color3.fromRGB(60,175,255) end
+    if n==5 then return Color3.fromRGB(55,215,125) end
+    if n==6 then return Color3.fromRGB(255,190,40) end
+    if n==7 then return Color3.fromRGB(255,115,55) end
+    return Color3.fromRGB(255,65,115)
+end
+
+local allWords={}
+local foundWords={}
+
+local function buildWordCards(words)
+    for _,c in ipairs(WordScroll:GetChildren()) do
+        if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+    end
+    if #words==0 then
+        local e=Instance.new("TextLabel",WordScroll)
+        e.Size=UDim2.new(1,0,0,60); e.BackgroundTransparency=1
+        e.Text="Menunggu round berikutnya...\nKata akan muncul otomatis."
+        e.TextColor3=C.sub; e.Font=Enum.Font.Gotham; e.TextSize=11; e.TextWrapped=true
+        return
+    end
+
+    local groups={}; local groupOrder={}
+    for _,w in ipairs(words) do
+        local n=#w.word
+        if not groups[n] then groups[n]={}; table.insert(groupOrder,n) end
+        table.insert(groups[n],w.word)
+    end
+    table.sort(groupOrder,function(a,b) return a>b end)
+
+    local order=0
+    for _,len in ipairs(groupOrder) do
+        local col=lenColor(len)
+        table.sort(groups[len])
+
+        local hf=Instance.new("Frame",WordScroll)
+        hf.Size=UDim2.new(1,0,0,18); hf.BackgroundTransparency=1; hf.LayoutOrder=order; order=order+1
+        local hl=Instance.new("TextLabel",hf)
+        hl.Size=UDim2.new(1,0,1,0); hl.BackgroundTransparency=1
+        hl.Text=len.." HURUF  •  "..#groups[len].." kata"
+        hl.TextColor3=col; hl.TextTransparency=0.1
+        hl.Font=Enum.Font.GothamBold; hl.TextSize=9; hl.TextXAlignment=Enum.TextXAlignment.Left
+
+        local row=Instance.new("Frame",WordScroll)
+        row.Size=UDim2.new(1,0,0,0); row.AutomaticSize=Enum.AutomaticSize.Y
+        row.BackgroundTransparency=1; row.LayoutOrder=order; order=order+1
+        local rl=Instance.new("UIListLayout",row)
+        rl.FillDirection=Enum.FillDirection.Horizontal
+        rl.Padding=UDim.new(0,5); rl.Wraps=true
+        rl.VerticalAlignment=Enum.VerticalAlignment.Top
+
+        for _,word in ipairs(groups[len]) do
+            local found=foundWords[word]~=nil
+            local chip=Instance.new("Frame",row)
+            chip.Size=UDim2.new(0,0,0,24); chip.AutomaticSize=Enum.AutomaticSize.X
+            chip.BackgroundColor3=found and C.green or col
+            chip.BackgroundTransparency=found and 0.6 or 0.85
+            chip.BorderSizePixel=0; corner(chip,6)
+            local cs=Instance.new("UIStroke",chip); cs.Color=found and C.green or col; cs.Thickness=1; cs.Transparency=found and 0.3 or 0.6
+            pad(chip,0,0,8,8)
+            local wl=Instance.new("TextLabel",chip)
+            wl.Size=UDim2.new(0,0,1,0); wl.AutomaticSize=Enum.AutomaticSize.X
+            wl.BackgroundTransparency=1
+            wl.Text=found and ("✓ "..word) or word
+            wl.TextColor3=found and C.green or C.white
+            wl.TextTransparency=found and 0.15 or 0.05
+            wl.Font=found and Enum.Font.GothamBold or Enum.Font.GothamMedium
+            wl.TextSize=11
+        end
+
+        local sp=Instance.new("Frame",WordScroll); sp.Size=UDim2.new(1,0,0,3)
+        sp.BackgroundTransparency=1; sp.LayoutOrder=order; order=order+1
+    end
+end
+
+applyFilter=function()
+    if #allWords==0 then return end
+    if activeFilter==0 then buildWordCards(allWords)
+    elseif activeFilter==8 then
+        local f={}; for _,w in ipairs(allWords) do if #w.word>=8 then f[#f+1]=w end end; buildWordCards(f)
+    else
+        local f={}; for _,w in ipairs(allWords) do if #w.word==activeFilter then f[#f+1]=w end end; buildWordCards(f)
+    end
+end
+
+-- ════════════════════════════════════
+--  SOLVER DFS
+--  Simpan path {row,col} per kata untuk ditampilkan
+-- ════════════════════════════════════
+local function solve(grid,ROWS,COLS)
+    local results={}; local submitted={}
+    local dirs={{-1,-1},{-1,0},{-1,1},{0,-1},{0,1},{1,-1},{1,0},{1,1}}
+
+    local function dfs(r,c,word,path,visited)
+        if r<1 or r>ROWS or c<1 or c>COLS then return end
+        local key=r..","..c
+        if visited[key] then return end
+        local tile=grid[r] and grid[r][c]
+        if not tile then return end
+
+        word=word..tile.char
+        -- Clone path dan tambah tile ini
+        local np=table.clone(path)
+        np[#np+1]={row=r, col=c}  -- format sesuai buildPathPayload game
+
+        if #word>=3 and isWord(word) and not submitted[word] then
+            submitted[word]=true
+            results[#results+1]={word=word, path=np}
+        end
+        if #word>=8 then return end
+
+        visited[key]=true
+        for _,d in ipairs(dirs) do dfs(r+d[1],c+d[2],word,np,visited) end
+        visited[key]=nil
+    end
+
+    for r=1,ROWS do
+        for c=1,COLS do dfs(r,c,"",{},{}) end
+    end
+
+    table.sort(results,function(a,b)
+        if #a.word~=#b.word then return #a.word>#b.word end
+        return a.word<b.word
+    end)
+    return results
+end
+
+-- ════════════════════════════════════
+--  HOOK StartRound
+-- ════════════════════════════════════
+-- Simpan current grid untuk referensi path
+local currentGrid = nil
+local currentROWS = 0
+local currentCOLS = 0
+
+StartRound.OnClientEvent:Connect(function(gridData)
+    if type(gridData)~="table" then return end
+    foundWords={}
+
+    local ROWS=#gridData; local COLS=0
+    for _,row in ipairs(gridData) do if #row>COLS then COLS=#row end end
+
+    -- Build grid
+    -- Server kirim baris atas ke bawah (confirmed dari log)
+    local grid={}
+    for r=1,ROWS do
+        grid[r]={}
+        local rowData=gridData[r]
+        if type(rowData)=="table" then
+            for c=1,COLS do
+                local char=rowData[c]
+                if type(char)=="string" then
+                    char=char:upper():gsub("%s+","")
+                    if #char==1 and char:match("^[A-Z]$") then
+                        grid[r][c]={char=char,row=r,col=c}
+                    end
+                end
+            end
+        end
+    end
+
+    currentGrid=grid; currentROWS=ROWS; currentCOLS=COLS
+    updateGridPreview(grid,ROWS,COLS)
+
+    if not dictReady then
+        setStatus("NODICT",C.red)
+        SubL.Text="Dictionary belum loaded!"
+        return
+    end
+
+    setStatus("SOLVE",C.accent)
+    SubL.Text="solving "..ROWS.."×"..COLS.." grid..."
+
+    task.spawn(function()
+        local results=solve(grid,ROWS,COLS)
+        allWords=results
+
+        local longest=""
+        for _,w in ipairs(results) do if #w.word>#longest then longest=w.word end end
+
+        StatKata.Text=tostring(#results)
+        StatGrid.Text=ROWS.."×"..COLS
+        StatPanjang.Text=#longest>0 and longest or "—"
+
+        activeFilter=0
+        for j,fb in ipairs(filterBtns) do
+            tw(fb,{BackgroundTransparency=j==1 and 0.15 or 0.55})
+            fb.TextColor3=j==1 and C.white or C.sub
+        end
+        buildWordCards(results)
+
+        setStatus("READY",C.green)
+        SubL.Text=#results.." kata  •  "..longest
+    end)
+end)
+
+-- ════════════════════════════════════
+--  HOOK WordResult — tandai kata found
+-- ════════════════════════════════════
+WordResult.OnClientEvent:Connect(function(status,path,word,score)
+    if status=="accepted" and type(word)=="string" then
+        foundWords[word:upper()]=true
+        if #allWords>0 then applyFilter() end
+    end
+end)
+
+-- ════════════════════════════════════
+--  MINIMIZE / CLOSE
+-- ════════════════════════════════════
+local minimized=false
+MinBtn.MouseButton1Click:Connect(function()
+    minimized=not minimized
+    tw(Win,{Size=UDim2.new(0,310,0,minimized and 54 or 510)},0.25)
+    MinBtn.Text=minimized and "▢" or "—"
+end)
+CloseBtn.MouseButton1Click:Connect(function()
+    tw(Win,{BackgroundTransparency=1},0.2); task.wait(0.25); SG:Destroy()
+end)
+
+-- ════════════════════════════════════
+--  LOAD DICTIONARY ON STARTUP
+-- ════════════════════════════════════
+buildWordCards({})
+Win.BackgroundTransparency=1
+tw(Win,{BackgroundTransparency=0},0.4)
+
+task.spawn(function()
+    -- Tunggu sebentar supaya game selesai load Dictionary module dulu
+    task.wait(2)
+    local ok,msg=loadDictionary()
+    if ok then
+        setStatus("READY",C.green)
+        SubL.Text="siap  •  "..msg
+    else
+        setStatus("ERR",C.red)
+        SubL.Text="Dict gagal: "..msg
+        warn("[WordSolver] Dict error:", msg)
+    end
+end)
+
+print("[WordSolver v10] Loaded ✦")
