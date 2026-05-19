@@ -1,0 +1,214 @@
+-- [[ DexterHUB - Noclip + Fly + AutoJump ]] --
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local LocalPlayer       = Players.LocalPlayer
+local Camera            = workspace.CurrentCamera
+
+local Toggles = {
+    Fly      = false,
+    Noclip   = false,
+    AutoJump = false,
+}
+
+-- ================================================
+-- UI
+-- ================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "DexterHUB"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder   = 999
+ScreenGui.Parent         = (game.CoreGui or LocalPlayer:WaitForChild("PlayerGui"))
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size             = UDim2.new(0, 275, 0, 220)
+MainFrame.Position         = UDim2.new(0, 10, 0.5, -110)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+MainFrame.BorderSizePixel  = 0
+MainFrame.Active           = true
+MainFrame.Draggable        = true
+MainFrame.Parent           = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+local stroke = Instance.new("UIStroke", MainFrame)
+stroke.Color     = Color3.fromRGB(70, 70, 100)
+stroke.Thickness = 1
+
+local Header = Instance.new("Frame")
+Header.Size             = UDim2.new(1, 0, 0, 45)
+Header.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+Header.BorderSizePixel  = 0
+Header.Parent           = MainFrame
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+local Title = Instance.new("TextLabel")
+Title.Size               = UDim2.new(1, -80, 1, 0)
+Title.Position           = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text               = "⚡ DexterHUB"
+Title.TextColor3         = Color3.fromRGB(180, 180, 255)
+Title.Font               = Enum.Font.GothamBold
+Title.TextSize           = 13
+Title.TextXAlignment     = Enum.TextXAlignment.Left
+Title.Parent             = Header
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size             = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position         = UDim2.new(1, -30, 0.5, -14)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(150, 40, 40)
+CloseBtn.Text             = "X"
+CloseBtn.TextColor3       = Color3.fromRGB(255, 200, 200)
+CloseBtn.Font             = Enum.Font.GothamBold
+CloseBtn.TextSize         = 13
+CloseBtn.Parent           = Header
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size                 = UDim2.new(1, -10, 1, -55)
+ScrollFrame.Position             = UDim2.new(0, 5, 0, 50)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.BorderSizePixel      = 0
+ScrollFrame.ScrollBarThickness   = 3
+ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 120)
+ScrollFrame.CanvasSize           = UDim2.new(0, 0, 0, 0)
+ScrollFrame.AutomaticCanvasSize  = Enum.AutomaticSize.Y
+ScrollFrame.Parent               = MainFrame
+
+local Layout = Instance.new("UIListLayout", ScrollFrame)
+Layout.Padding             = UDim.new(0, 6)
+Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout.SortOrder           = Enum.SortOrder.LayoutOrder
+
+local Pad = Instance.new("UIPadding", ScrollFrame)
+Pad.PaddingTop    = UDim.new(0, 6)
+Pad.PaddingBottom = UDim.new(0, 10)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    for k in pairs(Toggles) do Toggles[k] = false end
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    ScreenGui:Destroy()
+end)
+
+-- ================================================
+-- HELPER UI
+-- ================================================
+local function MakeButton(label, callback)
+    local Btn = Instance.new("TextButton")
+    Btn.Size             = UDim2.new(0.95, 0, 0, 38)
+    Btn.BackgroundColor3 = Color3.fromRGB(38, 38, 55)
+    Btn.Text             = label .. ": OFF"
+    Btn.TextColor3       = Color3.fromRGB(180, 180, 180)
+    Btn.Font             = Enum.Font.GothamSemibold
+    Btn.TextSize         = 12
+    Btn.Parent           = ScrollFrame
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 7)
+
+    local active = false
+    Btn.MouseButton1Click:Connect(function()
+        active = not active
+        Btn.Text             = label .. (active and ": ON" or ": OFF")
+        Btn.TextColor3       = active and Color3.fromRGB(100, 255, 130) or Color3.fromRGB(180, 180, 180)
+        Btn.BackgroundColor3 = active and Color3.fromRGB(28, 55, 32)   or Color3.fromRGB(38, 38, 55)
+        callback(active)
+    end)
+    return Btn
+end
+
+-- ================================================
+-- FLY
+-- ================================================
+local flyActive = false
+local bg, bv
+
+local function ToggleFly(state)
+    flyActive = state
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    if flyActive then
+        bg = Instance.new("BodyGyro", hrp)
+        bg.P = 9e4; bg.maxTorque = Vector3.new(9e9,9e9,9e9)
+        bg.cframe = hrp.CFrame
+
+        bv = Instance.new("BodyVelocity", hrp)
+        bv.velocity = Vector3.zero
+        bv.maxForce = Vector3.new(9e9,9e9,9e9)
+
+        task.spawn(function()
+            while flyActive and hrp and hrp.Parent do
+                local dir = Vector3.zero
+                local spd = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 110 or 55
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += Camera.CFrame.LookVector  end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir -= Camera.CFrame.LookVector  end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir -= Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.E) then dir += Vector3.new(0,1,0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Q) then dir -= Vector3.new(0,1,0) end
+                bg.cframe   = Camera.CFrame
+                bv.velocity = dir * spd
+                task.wait()
+            end
+        end)
+    else
+        if bg then bg:Destroy(); bg = nil end
+        if bv then bv:Destroy(); bv = nil end
+    end
+end
+
+-- ================================================
+-- NOCLIP
+-- ================================================
+RunService.Stepped:Connect(function()
+    if Toggles.Noclip and LocalPlayer.Character then
+        for _, p in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end
+end)
+
+-- ================================================
+-- AUTO JUMP SETIAP 10 DETIK
+-- ================================================
+task.spawn(function()
+    while true do
+        task.wait(10)
+        if Toggles.AutoJump then
+            local char = LocalPlayer.Character
+            local hum  = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.Jump = true
+            end
+        end
+    end
+end)
+
+-- ================================================
+-- TOMBOL UI
+-- ================================================
+MakeButton("🚀 Fly (Shift=cepat, E/Q=atas/bawah)", function(on)
+    Toggles.Fly = on
+    ToggleFly(on)
+end)
+
+MakeButton("👻 Noclip", function(on)
+    Toggles.Noclip = on
+end)
+
+MakeButton("🦘 Auto Jump (tiap 10 detik)", function(on)
+    Toggles.AutoJump = on
+end)
+
+-- ================================================
+-- HANDLER RESPAWN
+-- ================================================
+LocalPlayer.CharacterAdded:Connect(function()
+    flyActive = false
+    if bg then bg:Destroy(); bg = nil end
+    if bv then bv:Destroy(); bv = nil end
+end)
+
+print("[DexterHUB] Loaded! Fly | Noclip | AutoJump")
