@@ -1,0 +1,577 @@
+-- [[ DexterHUB V5.3 - Survive Zombie Arena ]] --
+-- FIX: Auto Shoot otomatis release → equip senjata → press lagi
+--      sehingga tidak perlu off/on manual setelah upgrade senjata
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService  = game:GetService("UserInputService")
+local VIM               = game:GetService("VirtualInputManager")
+local LocalPlayer       = Players.LocalPlayer
+local Camera            = workspace.CurrentCamera
+
+-- ================================================
+-- TOGGLES
+-- ================================================
+local Toggles = {
+    Fly        = false,
+    Noclip     = false,
+    AutoSkill  = { [1]=false, [2]=false, [3]=false },
+    AutoShoot  = false,
+    AutoHealth = false,
+    AutoWeapon = false,
+}
+
+-- ================================================
+-- STATE TEMBAKAN — dikelola satu tempat
+-- ================================================
+local isFiring      = false   -- apakah mouse1press sedang aktif
+local shootPaused   = false   -- true = sedang pause karena equip senjata
+
+-- Fungsi terpusat untuk lepas tembakan
+local function ReleaseShot()
+    if isFiring then
+        isFiring = false
+        pcall(function()
+            if mouse1release then mouse1release() end
+        end)
+        -- Fallback VIM release
+        pcall(function()
+            VIM:SendMouseButtonEvent(
+                Camera.ViewportSize.X / 2,
+                Camera.ViewportSize.Y / 2,
+                0, false, game, 1
+            )
+        end)
+    end
+end
+
+-- Fungsi terpusat untuk mulai tembakan
+local function StartShot()
+    if not isFiring then
+        isFiring = true
+        pcall(function()
+            if mouse1press then
+                mouse1press()
+            else
+                VIM:SendMouseButtonEvent(
+                    Camera.ViewportSize.X / 2,
+                    Camera.ViewportSize.Y / 2,
+                    0, true, game, 1
+                )
+            end
+        end)
+    end
+end
+
+-- ================================================
+-- [[ 1. UI ]]
+-- ================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "DexterHUB_V53"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder   = 999
+ScreenGui.Parent         = (game.CoreGui or LocalPlayer:WaitForChild("PlayerGui"))
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size             = UDim2.new(0, 275, 0, 480)
+MainFrame.Position         = UDim2.new(0, 10, 0.5, -240)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+MainFrame.BorderSizePixel  = 0
+MainFrame.Active           = true
+MainFrame.Draggable        = true
+MainFrame.Parent           = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+local stroke = Instance.new("UIStroke", MainFrame)
+stroke.Color     = Color3.fromRGB(70, 70, 100)
+stroke.Thickness = 1
+
+local Header = Instance.new("Frame")
+Header.Size             = UDim2.new(1, 0, 0, 45)
+Header.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+Header.BorderSizePixel  = 0
+Header.Parent           = MainFrame
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+local Title = Instance.new("TextLabel")
+Title.Size               = UDim2.new(1, -80, 1, 0)
+Title.Position           = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text               = "⚡ DexterHUB V5.3"
+Title.TextColor3         = Color3.fromRGB(180, 180, 255)
+Title.Font               = Enum.Font.GothamBold
+Title.TextSize           = 13
+Title.TextXAlignment     = Enum.TextXAlignment.Left
+Title.Parent             = Header
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size             = UDim2.new(0, 28, 0, 28)
+MinBtn.Position         = UDim2.new(1, -62, 0.5, -14)
+MinBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+MinBtn.Text             = "_"
+MinBtn.TextColor3       = Color3.fromRGB(200, 200, 200)
+MinBtn.Font             = Enum.Font.GothamBold
+MinBtn.TextSize         = 14
+MinBtn.Parent           = Header
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size             = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position         = UDim2.new(1, -30, 0.5, -14)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(150, 40, 40)
+CloseBtn.Text             = "X"
+CloseBtn.TextColor3       = Color3.fromRGB(255, 200, 200)
+CloseBtn.Font             = Enum.Font.GothamBold
+CloseBtn.TextSize         = 13
+CloseBtn.Parent           = Header
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size                 = UDim2.new(1, -10, 1, -55)
+ScrollFrame.Position             = UDim2.new(0, 5, 0, 50)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.BorderSizePixel      = 0
+ScrollFrame.ScrollBarThickness   = 3
+ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 120)
+ScrollFrame.CanvasSize           = UDim2.new(0, 0, 0, 0)
+ScrollFrame.AutomaticCanvasSize  = Enum.AutomaticSize.Y
+ScrollFrame.Parent               = MainFrame
+
+local Layout = Instance.new("UIListLayout", ScrollFrame)
+Layout.Padding             = UDim.new(0, 6)
+Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout.SortOrder           = Enum.SortOrder.LayoutOrder
+
+local Pad = Instance.new("UIPadding", ScrollFrame)
+Pad.PaddingTop    = UDim.new(0, 6)
+Pad.PaddingBottom = UDim.new(0, 10)
+
+local isMinimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    ScrollFrame.Visible = not isMinimized
+    if isMinimized then
+        MainFrame.Size = UDim2.new(0, 275, 0, 45)
+        MinBtn.Text    = "▲"
+    else
+        MainFrame.Size = UDim2.new(0, 275, 0, 480)
+        MinBtn.Text    = "_"
+    end
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    Toggles.AutoShoot  = false
+    Toggles.AutoWeapon = false
+    for k in pairs(Toggles) do
+        if type(Toggles[k]) == "boolean" then Toggles[k] = false end
+    end
+    for i = 1, 3 do Toggles.AutoSkill[i] = false end
+    ReleaseShot()
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    ScreenGui:Destroy()
+end)
+
+-- ================================================
+-- [[ 2. HELPER UI ]]
+-- ================================================
+local function MakeButton(label, callback, hotkey)
+    local Btn = Instance.new("TextButton")
+    Btn.Size             = UDim2.new(0.95, 0, 0, 38)
+    Btn.BackgroundColor3 = Color3.fromRGB(38, 38, 55)
+    Btn.Text             = label .. ": OFF"
+    Btn.TextColor3       = Color3.fromRGB(180, 180, 180)
+    Btn.Font             = Enum.Font.GothamSemibold
+    Btn.TextSize         = 12
+    Btn.Parent           = ScrollFrame
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 7)
+
+    local active = false
+    local function Toggle()
+        active = not active
+        Btn.Text             = label .. (active and ": ON" or ": OFF")
+        Btn.TextColor3       = active and Color3.fromRGB(100, 255, 130) or Color3.fromRGB(180, 180, 180)
+        Btn.BackgroundColor3 = active and Color3.fromRGB(28, 55, 32)   or Color3.fromRGB(38, 38, 55)
+        callback(active)
+    end
+
+    Btn.MouseButton1Click:Connect(Toggle)
+
+    if hotkey then
+        UserInputService.InputBegan:Connect(function(input, processed)
+            if not processed and input.KeyCode == hotkey then Toggle() end
+        end)
+    end
+    return Btn
+end
+
+local function MakeLabel(txt)
+    local L = Instance.new("TextLabel")
+    L.Size               = UDim2.new(0.95, 0, 0, 20)
+    L.BackgroundTransparency = 1
+    L.Text               = txt
+    L.TextColor3         = Color3.fromRGB(100, 100, 135)
+    L.Font               = Enum.Font.GothamBold
+    L.TextSize           = 10
+    L.TextXAlignment     = Enum.TextXAlignment.Left
+    L.Parent             = ScrollFrame
+    return L
+end
+
+-- ================================================
+-- [[ 3. CARI ZOMBIE TERDEKAT ]]
+-- ================================================
+local function GetNearestZombie()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local myPos   = hrp.Position
+    local nearest = nil
+    local nearDist = 600
+
+    local folder = workspace:FindFirstChild("Zombies_Local")
+    if not folder then return nil end
+
+    for _, zombie in ipairs(folder:GetChildren()) do
+        local target = zombie:FindFirstChild("HumanoidRootPart")
+                    or zombie:FindFirstChild("Head")
+                    or zombie:FindFirstChildWhichIsA("BasePart")
+        local hum = zombie:FindFirstChildOfClass("Humanoid")
+        if target and (not hum or hum.Health > 0) then
+            local d = (myPos - target.Position).Magnitude
+            if d < nearDist then
+                nearDist = d
+                nearest  = target
+            end
+        end
+    end
+    return nearest
+end
+
+-- ================================================
+-- [[ 4. FLY ]]
+-- ================================================
+local flyActive = false
+local bg, bv
+
+local function ToggleFly(state)
+    flyActive = state
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    if flyActive then
+        bg = Instance.new("BodyGyro", hrp)
+        bg.P = 9e4; bg.maxTorque = Vector3.new(9e9,9e9,9e9)
+        bg.cframe = hrp.CFrame
+
+        bv = Instance.new("BodyVelocity", hrp)
+        bv.velocity = Vector3.zero
+        bv.maxForce = Vector3.new(9e9,9e9,9e9)
+
+        task.spawn(function()
+            while flyActive and hrp and hrp.Parent do
+                local dir = Vector3.zero
+                local spd = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 110 or 55
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += Camera.CFrame.LookVector  end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir -= Camera.CFrame.LookVector  end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir -= Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.E) then dir += Vector3.new(0,1,0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Q) then dir -= Vector3.new(0,1,0) end
+                bg.cframe   = Camera.CFrame
+                bv.velocity = dir * spd
+                task.wait()
+            end
+        end)
+    else
+        if bg then bg:Destroy(); bg = nil end
+        if bv then bv:Destroy(); bv = nil end
+    end
+end
+
+-- ================================================
+-- [[ 5. NOCLIP ]]
+-- ================================================
+RunService.Stepped:Connect(function()
+    if Toggles.Noclip and LocalPlayer.Character then
+        for _, p in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end
+end)
+
+-- ================================================
+-- [[ 6. AUTO SHOOT — AIMBOT + HOLD LOOP ]]
+-- ================================================
+
+-- Bagian A: Aimbot di RenderStepped
+RunService.RenderStepped:Connect(function()
+    if not Toggles.AutoShoot then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        return
+    end
+
+    local target = GetNearestZombie()
+    if target then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Position)
+
+        local char = LocalPlayer.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = CFrame.lookAt(
+                    hrp.Position,
+                    Vector3.new(target.Position.X, hrp.Position.Y, target.Position.Z)
+                )
+            end
+        end
+    else
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    end
+end)
+
+-- Bagian B: Hold loop di thread terpisah
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+
+        -- Auto Shoot dimatikan
+        if not Toggles.AutoShoot then
+            ReleaseShot()
+            continue
+        end
+
+        -- Sedang pause karena weapon equip — tunggu sampai selesai
+        if shootPaused then
+            ReleaseShot()
+            continue
+        end
+
+        local target = GetNearestZombie()
+        if target then
+            StartShot()
+        else
+            ReleaseShot()
+        end
+    end
+end)
+
+-- ================================================
+-- [[ 7. AUTO SKILL ]]
+-- ================================================
+local gearRemotes  = nil
+local gearPurchase = nil
+
+task.spawn(function()
+    local ok, gr = pcall(function()
+        return ReplicatedStorage:WaitForChild("GearRemotes", 15)
+    end)
+    if ok and gr then
+        gearRemotes  = gr
+        gearPurchase = gr:FindFirstChild("GearPurchase")
+    end
+end)
+
+local slotKeys = { [1]=Enum.KeyCode.E, [2]=Enum.KeyCode.R, [3]=Enum.KeyCode.Q }
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if UserInputService:GetFocusedTextBox() then continue end
+
+        for i = 1, 3 do
+            if not Toggles.AutoSkill[i] then continue end
+
+            local fired = false
+
+            -- Metode 1: GearPurchase remote (cara resmi game)
+            if gearPurchase then
+                pcall(function()
+                    local gb       = _G.GearButtons
+                    local slotData = gb and gb["Slot"..i]
+                    local gearName = slotData and slotData.GearName
+                    if gearName and gearName ~= "" then
+                        gearPurchase:FireServer(gearName)
+                        fired = true
+                    end
+                end)
+            end
+
+            -- Metode 2: GearClient
+            if not fired then
+                pcall(function()
+                    local gc = _G.GearClient
+                    if gc and gc.OnGearSlotPressed then
+                        gc:OnGearSlotPressed(i)
+                        fired = true
+                    end
+                end)
+            end
+
+            -- Metode 3: VIM keypress fallback
+            if not fired then
+                pcall(function()
+                    VIM:SendKeyEvent(true,  slotKeys[i], false, game)
+                    task.wait(0.03)
+                    VIM:SendKeyEvent(false, slotKeys[i], false, game)
+                end)
+            end
+        end
+    end
+end)
+
+-- ================================================
+-- [[ 8. AUTO UPGRADE + AUTO EQUIP + RESUME SHOOT ]]
+-- ================================================
+local remoteCache = {}
+local function GetRemote(folder, name)
+    local key = folder.."."..name
+    if remoteCache[key] then return remoteCache[key] end
+    local f = ReplicatedStorage:FindFirstChild(folder)
+    if not f then return nil end
+    local r = f:FindFirstChild(name)
+    if r then remoteCache[key] = r end
+    return r
+end
+
+-- Auto equip + resume tembakan
+-- Urutan:
+--   1. Pause auto shoot (release dulu)
+--   2. Tunggu senjata masuk backpack
+--   3. Equip senjata (tekan 1)
+--   4. Tunggu game register equip (0.3s)
+--   5. Resume auto shoot (press lagi otomatis)
+local function EquipNewWeaponAndResume()
+    shootPaused = true   -- hentikan hold sementara
+    ReleaseShot()        -- pastikan mouse1 dilepas
+
+    task.wait(0.2)       -- tunggu tool masuk backpack
+
+    -- Equip via VIM tekan angka 1
+    pcall(function()
+        VIM:SendKeyEvent(true,  Enum.KeyCode.One, false, game)
+        task.wait(0.06)
+        VIM:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+    end)
+
+    -- Fallback: langsung pindah tool ke character
+    pcall(function()
+        local bp   = LocalPlayer:FindFirstChild("Backpack")
+        local char = LocalPlayer.Character
+        if bp and char then
+            local tool = bp:FindFirstChildOfClass("Tool")
+            if tool then tool.Parent = char end
+        end
+    end)
+
+    task.wait(0.35)      -- tunggu equip selesai diproses game
+
+    shootPaused = false  -- izinkan hold loop mulai lagi
+    -- Loop di Bagian B akan otomatis panggil StartShot() di iterasi berikutnya
+end
+
+local function WatchBackpack()
+    local bp = LocalPlayer:WaitForChild("Backpack", 10)
+    if not bp then return end
+
+    bp.ChildAdded:Connect(function(child)
+        if not Toggles.AutoWeapon then return end
+        if not child:IsA("Tool") then return end
+        EquipNewWeaponAndResume()
+    end)
+end
+
+task.spawn(WatchBackpack)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    WatchBackpack()
+end)
+
+-- Loop upgrade
+task.spawn(function()
+    while true do
+        task.wait(0.18)
+
+        if Toggles.AutoHealth then
+            pcall(function()
+                local r = GetRemote("UpgradeRemotes", "PurchaseHealthUpgrade")
+                if r then r:FireServer() end
+            end)
+        end
+
+        if Toggles.AutoWeapon then
+            pcall(function()
+                local r = GetRemote("UpgradeRemotes", "PurchaseWeaponUpgrade")
+                if r then r:FireServer() end
+            end)
+        end
+    end
+end)
+
+-- ================================================
+-- [[ 9. SETUP TOMBOL UI ]]
+-- ================================================
+MakeLabel("  ── MOVEMENT ──")
+
+MakeButton("🚀 Fly (Shift=cepat, E/Q=atas/bawah)", function(on)
+    Toggles.Fly = on
+    ToggleFly(on)
+end)
+
+MakeButton("👻 Noclip", function(on)
+    Toggles.Noclip = on
+end)
+
+MakeLabel("  ── COMBAT ──")
+
+MakeButton("🎯 Auto Shoot + Aimbot [Key: 5]", function(on)
+    Toggles.AutoShoot = on
+    if not on then
+        ReleaseShot()
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    end
+end, Enum.KeyCode.Five)
+
+MakeLabel("  ── SKILL AUTO ──")
+
+MakeButton("⚔️  Slot 1 (E) - Jubah", function(on)
+    Toggles.AutoSkill[1] = on
+end)
+MakeButton("🌀 Slot 2 (R) - Amarah Pedang", function(on)
+    Toggles.AutoSkill[2] = on
+end)
+MakeButton("🌟 Slot 3 (Q) - Shuriken", function(on)
+    Toggles.AutoSkill[3] = on
+end)
+
+MakeLabel("  ── UPGRADE ──")
+
+MakeButton("❤️  Auto Upgrade HP", function(on)
+    Toggles.AutoHealth = on
+end)
+
+MakeButton("🔫 Auto Upgrade Senjata + Auto Equip", function(on)
+    Toggles.AutoWeapon = on
+end)
+
+-- ================================================
+-- [[ 10. HANDLER RESPAWN ]]
+-- ================================================
+LocalPlayer.CharacterAdded:Connect(function()
+    flyActive   = false
+    shootPaused = false
+    if bg then bg:Destroy(); bg = nil end
+    if bv then bv:Destroy(); bv = nil end
+    ReleaseShot()
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+end)
+
+print("[DexterHUB V5.3] Loaded!")
+print("  FIX: Auto Shoot resume otomatis setelah weapon equip")
