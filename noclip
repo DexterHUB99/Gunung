@@ -1,15 +1,19 @@
--- [[ DexterHUB - Noclip + Fly + AutoJump ]] --
+-- [[ DexterHUB - Fly + Noclip + AutoJump + AutoUpgrade ]] --
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService  = game:GetService("UserInputService")
+local VIM               = game:GetService("VirtualInputManager")
 local LocalPlayer       = Players.LocalPlayer
 local Camera            = workspace.CurrentCamera
 
 local Toggles = {
-    Fly      = false,
-    Noclip   = false,
-    AutoJump = false,
+    Fly        = false,
+    Noclip     = false,
+    AutoJump   = false,
+    AutoHealth = false,
+    AutoWeapon = false,
 }
 
 -- ================================================
@@ -23,8 +27,8 @@ ScreenGui.DisplayOrder   = 999
 ScreenGui.Parent         = (game.CoreGui or LocalPlayer:WaitForChild("PlayerGui"))
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size             = UDim2.new(0, 275, 0, 220)
-MainFrame.Position         = UDim2.new(0, 10, 0.5, -110)
+MainFrame.Size             = UDim2.new(0, 275, 0, 320)
+MainFrame.Position         = UDim2.new(0, 10, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 MainFrame.BorderSizePixel  = 0
 MainFrame.Active           = true
@@ -53,6 +57,17 @@ Title.Font               = Enum.Font.GothamBold
 Title.TextSize           = 13
 Title.TextXAlignment     = Enum.TextXAlignment.Left
 Title.Parent             = Header
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size             = UDim2.new(0, 28, 0, 28)
+MinBtn.Position         = UDim2.new(1, -62, 0.5, -14)
+MinBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+MinBtn.Text             = "_"
+MinBtn.TextColor3       = Color3.fromRGB(200, 200, 200)
+MinBtn.Font             = Enum.Font.GothamBold
+MinBtn.TextSize         = 14
+MinBtn.Parent           = Header
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
 
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size             = UDim2.new(0, 28, 0, 28)
@@ -85,9 +100,21 @@ local Pad = Instance.new("UIPadding", ScrollFrame)
 Pad.PaddingTop    = UDim.new(0, 6)
 Pad.PaddingBottom = UDim.new(0, 10)
 
+local isMinimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    ScrollFrame.Visible = not isMinimized
+    if isMinimized then
+        MainFrame.Size = UDim2.new(0, 275, 0, 45)
+        MinBtn.Text    = "▲"
+    else
+        MainFrame.Size = UDim2.new(0, 275, 0, 320)
+        MinBtn.Text    = "_"
+    end
+end)
+
 CloseBtn.MouseButton1Click:Connect(function()
     for k in pairs(Toggles) do Toggles[k] = false end
-    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     ScreenGui:Destroy()
 end)
 
@@ -114,6 +141,19 @@ local function MakeButton(label, callback)
         callback(active)
     end)
     return Btn
+end
+
+local function MakeLabel(txt)
+    local L = Instance.new("TextLabel")
+    L.Size               = UDim2.new(0.95, 0, 0, 20)
+    L.BackgroundTransparency = 1
+    L.Text               = txt
+    L.TextColor3         = Color3.fromRGB(100, 100, 135)
+    L.Font               = Enum.Font.GothamBold
+    L.TextSize           = 10
+    L.TextXAlignment     = Enum.TextXAlignment.Left
+    L.Parent             = ScrollFrame
+    return L
 end
 
 -- ================================================
@@ -171,24 +211,99 @@ RunService.Stepped:Connect(function()
 end)
 
 -- ================================================
--- AUTO JUMP SETIAP 10 DETIK
+-- AUTO JUMP (VIM Space setiap 10 detik)
 -- ================================================
 task.spawn(function()
     while true do
         task.wait(10)
-        if Toggles.AutoJump then
-            local char = LocalPlayer.Character
-            local hum  = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.Jump = true
-            end
+        if not Toggles.AutoJump then continue end
+
+        -- Metode 1: Humanoid.Jump langsung
+        local char = LocalPlayer.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.Jump = true
+        end
+
+        -- Metode 2: VIM kirim Space sebagai fallback
+        pcall(function()
+            VIM:SendKeyEvent(true,  Enum.KeyCode.Space, false, game)
+            task.wait(0.1)
+            VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+        end)
+    end
+end)
+
+-- ================================================
+-- AUTO UPGRADE HP + SENJATA
+-- ================================================
+local remoteCache = {}
+local function GetRemote(folder, name)
+    local key = folder.."."..name
+    if remoteCache[key] then return remoteCache[key] end
+    local f = ReplicatedStorage:FindFirstChild(folder)
+    if not f then return nil end
+    local r = f:FindFirstChild(name)
+    if r then remoteCache[key] = r end
+    return r
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.18)
+
+        if Toggles.AutoHealth then
+            pcall(function()
+                local r = GetRemote("UpgradeRemotes", "PurchaseHealthUpgrade")
+                if r then r:FireServer() end
+            end)
+        end
+
+        if Toggles.AutoWeapon then
+            pcall(function()
+                local r = GetRemote("UpgradeRemotes", "PurchaseWeaponUpgrade")
+                if r then r:FireServer() end
+            end)
         end
     end
+end)
+
+-- Auto equip senjata baru masuk backpack
+local function WatchBackpack()
+    local bp = LocalPlayer:WaitForChild("Backpack", 10)
+    if not bp then return end
+    bp.ChildAdded:Connect(function(child)
+        if not Toggles.AutoWeapon then return end
+        if not child:IsA("Tool") then return end
+        task.wait(0.2)
+        -- Equip via VIM angka 1
+        pcall(function()
+            VIM:SendKeyEvent(true,  Enum.KeyCode.One, false, game)
+            task.wait(0.06)
+            VIM:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+        end)
+        -- Fallback langsung pindah tool
+        pcall(function()
+            local char = LocalPlayer.Character
+            if bp and char then
+                local tool = bp:FindFirstChildOfClass("Tool")
+                if tool then tool.Parent = char end
+            end
+        end)
+    end)
+end
+
+task.spawn(WatchBackpack)
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    WatchBackpack()
 end)
 
 -- ================================================
 -- TOMBOL UI
 -- ================================================
+MakeLabel("  ── MOVEMENT ──")
+
 MakeButton("🚀 Fly (Shift=cepat, E/Q=atas/bawah)", function(on)
     Toggles.Fly = on
     ToggleFly(on)
@@ -202,6 +317,16 @@ MakeButton("🦘 Auto Jump (tiap 10 detik)", function(on)
     Toggles.AutoJump = on
 end)
 
+MakeLabel("  ── UPGRADE ──")
+
+MakeButton("❤️  Auto Upgrade HP", function(on)
+    Toggles.AutoHealth = on
+end)
+
+MakeButton("🔫 Auto Upgrade Senjata + Auto Equip", function(on)
+    Toggles.AutoWeapon = on
+end)
+
 -- ================================================
 -- HANDLER RESPAWN
 -- ================================================
@@ -211,4 +336,4 @@ LocalPlayer.CharacterAdded:Connect(function()
     if bv then bv:Destroy(); bv = nil end
 end)
 
-print("[DexterHUB] Loaded! Fly | Noclip | AutoJump")
+print("[DexterHUB] Loaded! Fly | Noclip | AutoJump | AutoUpgrade")
